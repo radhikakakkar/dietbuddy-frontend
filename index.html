@@ -18,7 +18,11 @@
             display: block;
             margin-bottom: 5px;
         }
-        select, button {
+        select {
+            padding: 8px;
+            width: 200px;
+        }
+        button{
             padding: 8px;
             width: 200px;
         }
@@ -32,7 +36,18 @@
         button:hover {
             background-color: #45a049;
         }
-        #results {
+        .remove-button {
+            background-color: transparent;
+            color: red;
+            border: none;
+            cursor: pointer;
+            font-size: 16px;
+            /* margin-left: 10px; */
+        }
+        .remove-button:hover {
+            background-color: transparent;
+        }
+        #results, #editableResults {
             margin-top: 20px;
             padding: 10px;
             border: 1px solid #ddd;
@@ -106,10 +121,22 @@
         <h2>Recommended Food Items:</h2>
         <p>For: <span id="meal-time"></span></p>
         <ul id="recommendations"></ul>
-        <button id="submitFeedback" style="display: none;">Submit Feedback</button>
+        <button id="submitFeedback" style="display: none;">Edit Recommendations</button>
+    </div>
+
+    <div id="editableResults">
+        <h2>Edit Food Items:</h2>
+        <ul id="editableRecommendations"></ul>
+        <button id="addNewItem">Add New Item</button>
+        <button id="finalSubmit" style="display: none;">Submit Final Feedback</button>
     </div>
 
     <script>
+        let user_preferences_data;
+        let predicted_results;
+        let non_acceptable_results = [];
+        let new_food_items = [];
+
         document.getElementById('recommendationForm').addEventListener('submit', async (e) => {
             e.preventDefault();
             
@@ -130,7 +157,7 @@
                 return;
             }
 
-            const formData = {
+            user_preferences_data = {
                 day_part: dayPart,
                 diet_type: dietType,
                 region: region,
@@ -141,16 +168,15 @@
 
             try {
                 const response = await fetch('http://127.0.0.1:8000/predict', {
-                //const response = await fetch('https://dietbuddy-backend.onrender.com/predict', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
                     },
-                    body: JSON.stringify(formData)
+                    body: JSON.stringify(user_preferences_data)
                 });
 
                 const data = await response.json();
-                
+                predicted_results = data;
                 if (response.ok) {
                     const resultsDiv = document.getElementById('results');
                     const recommendationsList = document.getElementById('recommendations');
@@ -162,9 +188,9 @@
                     data.food_items.forEach(item => {
                         const li = document.createElement('li');
                         li.innerHTML = `
-                            <span style="font-weight: bold; color: #2c3e50">${item.food_name}</span>
+                            <span class="food-name" style="font-weight: bold; color: #2c3e50">${item.food_name}</span>
                             <span style="color: grey"> • </span>
-                            <span style="color: blue; font-style: italic">${item.quantity}</span>
+                            <span class="quantity" style="color: blue; font-style: italic">${item.quantity}</span>
                         `;
                         li.style.padding = '8px 0';
                         li.style.borderBottom = '1px solid #eee';
@@ -181,19 +207,34 @@
             }
         });
 
-        document.getElementById('submitFeedback').addEventListener('click', async () => {
+        document.getElementById('submitFeedback').addEventListener('click', () => {
+            const editableResultsDiv = document.getElementById('editableResults');
+            const editableRecommendationsList = document.getElementById('editableRecommendations');
+            editableRecommendationsList.innerHTML = '';
+
+            predicted_results.food_items.forEach(item => {
+                const li = createEditableFoodItemElement(item);
+                editableRecommendationsList.appendChild(li);
+            });
+
+            editableResultsDiv.style.display = 'block';
+            document.getElementById('finalSubmit').style.display = 'block';
+            editableResultsDiv.scrollIntoView({ behavior: 'smooth' });
+        });
+
+        document.getElementById('finalSubmit').addEventListener('click', async () => {
             const feedbackData = {
-                user_preferences: formData,
-                predicted_results: data.food_items.map(item => item.food_name),
+                user_preferences: user_preferences_data,
+                predicted_results: predicted_results.food_items.map(item => item.food_name),
                 accepted_results: [], // To be filled based on user input
-                non_acceptable_results: [], // To be filled based on user input
-                new_food_items: [], // To be filled based on user input
+                non_acceptable_results: non_acceptable_results,
+                new_food_items: new_food_items,
                 expected_results: [] // To be filled based on user input
             };
 
             // Collect user feedback
-            const recommendationsList = document.getElementById('recommendations');
-            recommendationsList.querySelectorAll('li').forEach(li => {
+            const editableRecommendationsList = document.getElementById('editableRecommendations');
+            editableRecommendationsList.querySelectorAll('li').forEach(li => {
                 const foodName = li.querySelector('.food-name').value;
                 const quantity = li.querySelector('.quantity').value;
                 const unit = li.querySelector('.unit').value;
@@ -222,36 +263,77 @@
             }
         });
 
-        function makeEditable(li) {
-            const foodName = li.querySelector('.food-name');
-            const quantity = li.querySelector('.quantity');
-            const unit = li.querySelector('.unit');
+        document.getElementById('addNewItem').addEventListener('click', () => {
+            const li = createEditableFoodItemElement({ food_name: '', quantity: '' });
+            document.getElementById('editableRecommendations').appendChild(li);
+        });
 
-            foodName.disabled = false;
-            quantity.disabled = false;
-            unit.disabled = false;
-        }
-
-        function addEditButton(li) {
-            const editButton = document.createElement('button');
-            editButton.textContent = 'Edit';
-            editButton.addEventListener('click', () => makeEditable(li));
-            li.appendChild(editButton);
-        }
-
-        function createFoodItemElement(item) {
+        function createEditableFoodItemElement(item) {
             const li = document.createElement('li');
+            const unit = determineUnit(item.quantity);
             li.innerHTML = `
-                <input type="text" class="food-name" value="${item.food_name}" disabled maxlength="50" />
-                <input type="number" class="quantity" value="${item.quantity}" disabled />
+                <input type="text" class="food-name" value="${item.food_name}" maxlength="50" disabled />
+                <input type="text" class="quantity" value="${item.quantity}" disabled />
                 <select class="unit" disabled>
-                    <option value="grams">grams</option>
-                    <option value="kgs">kgs</option>
-                    <option value="units">units</option>
+                    <option value="grams" ${unit === 'grams' ? 'selected' : ''}>grams</option>
+                    <option value="kgs" ${unit === 'kgs' ? 'selected' : ''}>kgs</option>
+                    <option value="units" ${unit === 'units' ? 'selected' : ''}>units</option>
+                    <option value="cup" ${unit === 'cup' ? 'selected' : ''}>Cup</option>
+                    <option value="bowl" ${unit === 'bowl' ? 'selected' : ''}>Bowl</option>
                 </select>
+                <button class="remove-button">✖</button>
+                <button class="edit-button">Edit</button>
             `;
-            addEditButton(li);
+            addRemoveButton(li, item);
+            addEditButton(li, item);
             return li;
+        }
+
+        function determineUnit(quantity) {
+            if (quantity.includes('g') || quantity.includes('gms')) return 'grams';
+            if (quantity.includes('cup')) return 'cup';
+            if (quantity.includes('bowl')) return 'bowl';
+            return 'units';
+        }
+
+        function addRemoveButton(li, item) {
+            const removeButton = li.querySelector('.remove-button');
+            removeButton.addEventListener('click', () => {
+                li.remove();
+                non_acceptable_results.push(item.food_name);
+            });
+        }
+
+        function addEditButton(li, item) {
+            const editButton = li.querySelector('.edit-button');
+            editButton.addEventListener('click', () => {
+                const foodNameInput = li.querySelector('.food-name');
+                const quantityInput = li.querySelector('.quantity');
+                const unitSelect = li.querySelector('.unit');
+
+                if (editButton.textContent === 'Edit') {
+                    foodNameInput.disabled = false;
+                    quantityInput.disabled = false;
+                    unitSelect.disabled = false;
+                    editButton.textContent = 'Save';
+                } else {
+                    foodNameInput.disabled = true;
+                    quantityInput.disabled = true;
+                    unitSelect.disabled = true;
+                    editButton.textContent = 'Edit';
+
+                    const foodName = foodNameInput.value;
+                    const quantity = quantityInput.value;
+                    const unit = unitSelect.value;
+
+                    if (foodName && quantity) {
+                        item.food_name = foodName;
+                        item.quantity = quantity;
+                        item.unit = unit;
+                        alert('Item saved successfully!');
+                    }
+                }
+            });
         }
     </script>
 </body>
