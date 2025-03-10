@@ -18,13 +18,10 @@
             display: block;
             margin-bottom: 5px;
         }
-        select {
+        select, button, textarea, input[type="text"] {
             padding: 8px;
             width: 200px;
-        }
-        button{
-            padding: 8px;
-            width: 200px;
+            font-size: 16px;
         }
         button {
             background-color: #4CAF50;
@@ -36,22 +33,36 @@
         button:hover {
             background-color: #45a049;
         }
-        .remove-button {
-            background-color: transparent;
-            color: red;
+        .remove-button, .edit-button {
+            background-color: #f44336;
+            color: white;
             border: none;
             cursor: pointer;
-            font-size: 16px;
-            /* margin-left: 10px; */
+            font-size: 14px;
+            width: auto;
+            margin-left: 5px;
+            padding: 5px 10px;
+        }
+        .edit-button {
+            background-color: #4CAF50;
         }
         .remove-button:hover {
-            background-color: transparent;
+            background-color: #e53935;
+        }
+        .edit-button:hover {
+            background-color: #45a049;
         }
         #results, #editableResults {
             margin-top: 20px;
             padding: 10px;
             border: 1px solid #ddd;
             display: none;
+            width: 100%;
+        }
+        .error-message {
+            color: red;
+            font-size: 14px;
+            margin-top: 5px;
         }
     </style>
 </head>
@@ -66,6 +77,7 @@
                 <option value="Lunch">Lunch</option>
                 <option value="Dinner">Dinner</option>
             </select>
+            <div id="dayPartError" class="error-message" style="display: none;">Day Part is required.</div>
         </div>
 
         <div class="form-group">
@@ -95,6 +107,7 @@
                 <option value="North Indian">North Indian</option>
                 <option value="South Indian">South Indian</option>
             </select>
+            <div id="dietRegionError" class="error-message" style="display: none;">Either Diet Type or Region must be selected.</div>
         </div>
 
         <div class="form-group">
@@ -109,9 +122,11 @@
         <div class="form-group">
             <label for="is_non_veg">Food Preference:</label>
             <select id="is_non_veg" required>
+                <option value="">Select Food Preference</option>
                 <option value="false">Vegetarian</option>
                 <option value="true">Non-Vegetarian</option>
             </select>
+            <div id="foodPreferenceError" class="error-message" style="display: none;">Food Preference is required.</div>
         </div>
 
         <button type="submit">Get Recommendations</button>
@@ -128,7 +143,7 @@
         <h2>Edit Food Items:</h2>
         <ul id="editableRecommendations"></ul>
         <button id="addNewItem">Add New Item</button>
-        <button id="finalSubmit" style="display: none;">Submit Final Feedback</button>
+        <button id="finalSubmit" style="display: none;">Submit Feedback</button>
     </div>
 
     <script>
@@ -145,15 +160,26 @@
             const region = document.getElementById('region').value;
             const isNonVeg = document.getElementById('is_non_veg').value;
 
-            // Validation for empty day_part and region
+            // Reset error messages
+            document.getElementById('dayPartError').style.display = 'none';
+            document.getElementById('dietRegionError').style.display = 'none';
+            document.getElementById('foodPreferenceError').style.display = 'none';
+
+            // Validation for day_part
+            if (!dayPart) {
+                document.getElementById('dayPartError').style.display = 'block';
+                return;
+            }
+
+            // Validation for diet_type or region
             if (!dietType && !region) {
-                alert('Please provide either Diet Type or Region');
+                document.getElementById('dietRegionError').style.display = 'block';
                 return;
             }
 
             // Validation for is_non_veg
             if (!isNonVeg) {
-                alert('Please select a food preference (Vegetarian/Non-Vegetarian)');
+                document.getElementById('foodPreferenceError').style.display = 'block';
                 return;
             }
 
@@ -176,7 +202,7 @@
                 });
 
                 const data = await response.json();
-                predicted_results = data;
+                predicted_results = data.food_items;
                 if (response.ok) {
                     const resultsDiv = document.getElementById('results');
                     const recommendationsList = document.getElementById('recommendations');
@@ -212,7 +238,7 @@
             const editableRecommendationsList = document.getElementById('editableRecommendations');
             editableRecommendationsList.innerHTML = '';
 
-            predicted_results.food_items.forEach(item => {
+            predicted_results.forEach(item => {
                 const li = createEditableFoodItemElement(item);
                 editableRecommendationsList.appendChild(li);
             });
@@ -223,9 +249,27 @@
         });
 
         document.getElementById('finalSubmit').addEventListener('click', async () => {
+            const editingItems = document.querySelectorAll('.edit-button');
+            let unsavedChanges = false;
+
+            editingItems.forEach(button => {
+                if (button.textContent === 'Save') {
+                    unsavedChanges = true;
+                }
+            });
+
+            if (unsavedChanges) {
+                const proceed = confirm("You have unsaved changes. Do you want to proceed without saving?");
+                if (!proceed) {
+                    return;
+                }
+            }
+
             const feedbackData = {
                 user_preferences: user_preferences_data,
-                predicted_results: predicted_results.food_items.map(item => item.food_name),
+                predicted_results: predicted_results.map(item => {
+                    return {"food_name": item.food_name, "quantity": item.quantity}
+                }),
                 accepted_results: [], // To be filled based on user input
                 non_acceptable_results: non_acceptable_results,
                 new_food_items: new_food_items,
@@ -240,7 +284,7 @@
                 const unit = li.querySelector('.unit').value;
 
                 if (foodName && quantity) {
-                    feedbackData.expected_results.push(`${foodName} (${quantity} ${unit})`);
+                    feedbackData.expected_results.push({"food_name": foodName ,"quantity": `${quantity} ${unit}`});
                 }
             });
 
@@ -270,16 +314,19 @@
 
         function createEditableFoodItemElement(item) {
             const li = document.createElement('li');
-            const unit = determineUnit(item.quantity);
+            const unit = '';
+            // determineUnit(item.quantity);
             li.innerHTML = `
-                <input type="text" class="food-name" value="${item.food_name}" maxlength="50" disabled />
+                <textarea class="food-name" maxlength="50" disabled>${item.food_name}</textarea>
                 <input type="text" class="quantity" value="${item.quantity}" disabled />
                 <select class="unit" disabled>
+                    <option value="">Select Unit</option>
                     <option value="grams" ${unit === 'grams' ? 'selected' : ''}>grams</option>
                     <option value="kgs" ${unit === 'kgs' ? 'selected' : ''}>kgs</option>
                     <option value="units" ${unit === 'units' ? 'selected' : ''}>units</option>
                     <option value="cup" ${unit === 'cup' ? 'selected' : ''}>Cup</option>
                     <option value="bowl" ${unit === 'bowl' ? 'selected' : ''}>Bowl</option>
+                    <option value="glass" ${unit === 'glass' ? 'selected' : ''}>Glass</option>
                 </select>
                 <button class="remove-button">✖</button>
                 <button class="edit-button">Edit</button>
@@ -289,18 +336,20 @@
             return li;
         }
 
-        function determineUnit(quantity) {
-            if (quantity.includes('g') || quantity.includes('gms')) return 'grams';
-            if (quantity.includes('cup')) return 'cup';
-            if (quantity.includes('bowl')) return 'bowl';
-            return 'units';
-        }
+        // function determineUnit(quantity) {
+        //     const lowerQuantity = quantity.toLowerCase();
+        //     if (lowerQuantity.endsWith('g') || lowerQuantity.endsWith('gms') || lowerQuantity.endsWith('grams')) return 'grams';
+        //     if (lowerQuantity.includes('cup')) return 'cup';
+        //     if (lowerQuantity.includes('bowl')) return 'bowl';
+        //     if (lowerQuantity.includes('glass')) return 'glass';
+        //     return 'units';
+        // }
 
         function addRemoveButton(li, item) {
             const removeButton = li.querySelector('.remove-button');
             removeButton.addEventListener('click', () => {
                 li.remove();
-                non_acceptable_results.push(item.food_name);
+                non_acceptable_results.push({"food_name": item.food_name, "quantity": item.quantity});
             });
         }
 
@@ -315,21 +364,28 @@
                     foodNameInput.disabled = false;
                     quantityInput.disabled = false;
                     unitSelect.disabled = false;
+                    editButton.style.backgroundColor = "blue";
                     editButton.textContent = 'Save';
                 } else {
                     foodNameInput.disabled = true;
                     quantityInput.disabled = true;
                     unitSelect.disabled = true;
                     editButton.textContent = 'Edit';
+                    editButton.style.backgroundColor = "#4CAF50";
 
                     const foodName = foodNameInput.value;
                     const quantity = quantityInput.value;
                     const unit = unitSelect.value;
 
                     if (foodName && quantity) {
-                        item.food_name = foodName;
-                        item.quantity = quantity;
-                        item.unit = unit;
+                        // Check if the item is new or edited
+                        const isNewItem = !predicted_results.some(predictedItem => predictedItem.food_name === item.food_name);
+                        const isEditedItem = item.food_name !== foodName;
+
+                        if (isNewItem || isEditedItem) {
+                            new_food_items.push({"food_name": foodName, "quantity": `${quantity} ${unit}`});
+                        }
+
                         alert('Item saved successfully!');
                     }
                 }
